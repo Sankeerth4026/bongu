@@ -1,0 +1,121 @@
+name: CI / CD to EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Validate and build image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix backend
+
+      - name: Check JavaScript syntax
+        run: node --check backend/index.js
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build Docker image
+        run: docker compose build backend
+
+  deploy:
+    name: Deploy to Amazon EC2
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_APP_DIR: ${{ vars.EC2_APP_DIR }}
+        run: |
+          set -eu
+          : "${EC2_SSH_KEY:?Add the EC2_SSH_KEY repository secret}"
+          : "${EC2_KNOWN_HOSTS:?Add the EC2_KNOWN_HOSTS repository secret}"
+          : "${EC2_HOST:?Add the EC2_HOST repository secret}"
+          : "${EC2_USER:?Add the EC2_USER repository variable}"
+          : "${EC2_APP_DIR:?Add the EC2_APP_DIR repository variable}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$EC2_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Package application
+        run: |
+          tar \
+            --exclude='./.git' \
+            --exclude='./backend/node_modules' \
+            --exclude='./backend/.env' \
+            -czf "$RUNNER_TEMP/app.tar.gz" .
+
+      - name: Copy application to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+        run: |
+          scp -o StrictHostKeyChecking=yes \
+            "$RUNNER_TEMP/app.tar.gz" \
+            "$EC2_USER@$EC2_HOST:/tmp/app.tar.gz"
+
+      - name: Start application on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_APP_DIR: ${{ vars.EC2_APP_DIR }}
+        run: |
+          ssh -o StrictHostKeyChecking=yes "$EC2_USER@$EC2_HOST" \
+            bash -s -- "$EC2_APP_DIR" <<'REMOTE'
+          set -eu
+          app_dir="$1"
+          mkdir -p "$app_dir"
+          tar -xzf /tmp/app.tar.gz -C "$app_dir"
+          rm /tmp/app.tar.gz
+          cd "$app_dir"
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 10); do
+            if docker compose exec -T backend node -e \
+              "fetch('http://127.0.0.1:4000/').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+            then
+              echo "Application health check passed."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Application did not become healthy." >&2
+          docker compose logs --tail=100 backend
+          exit 1
+          REMOTE
