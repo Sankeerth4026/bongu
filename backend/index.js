@@ -9,6 +9,10 @@ app.get("/", (req, res) => {
   res.send("Hello from server");
 });
 
+app.get("/help",(req,res)=>{
+    res.send("you are helped")
+})
+
 app.listen(port, () => {
   console.log(`server started at ${port}`);
 });
