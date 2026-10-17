@@ -14,6 +14,10 @@ app.get("/help",(req,res)=>{
     res.send("you are helped");
 })
 
+app.get("/hey",(req,res)=>{
+  res.send("hey u are using");
+})
+
 app.listen(port, () => {
   console.log(`server started at ${port}`);
 });
