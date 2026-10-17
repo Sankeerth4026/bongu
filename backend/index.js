@@ -18,6 +18,10 @@ app.get("/hey",(req,res)=>{
   res.send("hey u are using");
 })
 
+app.get("/hi",(req,res)=>{
+  res.send("hi i am karthik crazy")
+})
+
 app.listen(port, () => {
   console.log(`server started at ${port}`);
 });
