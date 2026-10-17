@@ -10,7 +10,8 @@ app.get("/", (req, res) => {
 });
 
 app.get("/help",(req,res)=>{
-    res.send("you are helped")
+    console.log("came here")
+    res.send("you are helped");
 })
 
 app.listen(port, () => {
