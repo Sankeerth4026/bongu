@@ -22,6 +22,10 @@ app.get("/hi",(req,res)=>{
   res.send("hi i am karthik crazy")
 })
 
+app.get("/crazy",(req,res)=>{
+  res.send("its crazy man ")
+})
+
 app.listen(port, () => {
   console.log(`server started at ${port}`);
 });
