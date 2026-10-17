@@ -13,13 +13,13 @@ jobs:
 
     steps:
       - name : checkout code
-        uses : actions/checkoutcode@v6
+        uses : actions/checkout@v6
       - name : SSH and Deploy
         uses : appleboy/ssh-action@v1
         with :
-          host : ${{ secrets.SSH_HOST}}
+          host : ${{secrets.SSH_HOST}}
           username : ubuntu
-          key : ${{ secrets.EC2_SSH_KEY}}
+          key : ${{secrets.EC2_SSH_KEY}}
           script: |
             # These are the commands that run ON YOUR SERVER
             cd /bongu
